@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
+import logging
 
 app = FastAPI()
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Allow all origins for CORS
 app.add_middleware(
@@ -17,11 +21,19 @@ GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT-Ar35m
 @app.post("/match_trainers")
 async def match_trainers(request: Request):
     try:
+        logging.info("Received request to match trainers.")
+        
         data = await request.json()
         user_skills = [skill.strip().lower() for skill in data.get("skills", [])]
         user_location = data.get("location", "").strip().lower()
 
+        logging.info(f"User skills: {user_skills}, User location: {user_location}")
+
+        # Read the CSV from Google Sheets, but handle out-of-range floats or invalid data
         df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
+        
+        # Clean the data to prevent out-of-range errors by replacing any invalid float values
+        df = df.applymap(lambda x: None if isinstance(x, float) and (x == float('inf') or x == float('-inf')) else x)
 
         matched = []
         for _, row in df.iterrows():
@@ -39,7 +51,7 @@ async def match_trainers(request: Request):
 
         matched.sort(key=lambda x: x[0], reverse=True)
 
-        return {
+        response = {
             "matches": [
                 {
                     "name": f"{r['First Name']} {r['Last Name']}",
@@ -53,6 +65,9 @@ async def match_trainers(request: Request):
                 for _, r in matched[:10]
             ]
         }
+        logging.info(f"Matches found: {len(matched)}")
+        return response
     
     except Exception as e:
+        logging.error(f"Error: {str(e)}")
         return {"error": str(e)}
