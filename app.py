@@ -1,55 +1,53 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import pandas as pd
+
+# Create a Pydantic model for the input data structure
+class MatchRequest(BaseModel):
+    skills: list[str]
+    location: str
 
 app = FastAPI()
 
-# Allow access from anywhere (for testing purposes)
+# Allow access from anywhere (for testing)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow access from all domains
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# The URL for the public CSV link from Google Sheets
-GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT-Ar35mOmUWVi7sxlukLJLKtJ3WhtSx_dgEeB4GbNbOUAeTNKO0roiwUreM3sXFTnhlbRGM14yMqEP/pub?output=csv"
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT-Ar35mOmUWVi7sxlukLJLKtJ3WhtSx_dgEeB4GbNbOUAeTNKO0roiwUreM3sXFTnhlbRGM14yMqEP/pub?output=csv"  # Replace this!
 
 @app.post("/match_trainers")
-async def match_trainers(request: Request):
-    # Parse the incoming JSON request
-    data = await request.json()
-    user_skills = data.get("skills", [])  # List of skills from the user
-    user_location = data.get("location", "")  # Location of the user
+async def match_trainers(request: MatchRequest):
+    # Access user skills and location from the request body
+    user_skills = request.skills
+    user_location = request.location
 
-    # Read the Google Sheet CSV
-    try:
-        df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
-    except Exception as e:
-        return {"error": f"Failed to load CSV from Google Sheets: {str(e)}"}
+    # Fetch CSV data from the Google Sheet
+    df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
 
-    # Initialize list to store matched trainers
     matched = []
-
-    # Loop through the trainers in the CSV to find matches
     for _, row in df.iterrows():
-        skills = str(row["Skills Taught"]).lower().split(",")  # Split the skills string into a list
-        city = str(row["City"]).lower()  # Normalize city to lowercase
-        membership = str(row.get("Membership Type", "Free")).lower()  # Normalize membership type
+        skills = str(row["Skills Taught"]).lower().split(",")
+        city = str(row["City"]).lower()
+        membership = str(row.get("Membership Type", "Free")).lower()
 
-        # Check if any of the user's skills match the trainer's skills
+        # Check if there is a skill match and location match
         skill_match = any(skill.strip().lower() in [s.strip() for s in skills] for skill in user_skills)
-        location_match = not user_location or user_location.lower() in city  # Match location (if provided)
+        location_match = not user_location or user_location.lower() in city
 
-        # If both skill and location match, add this trainer to the list
+        # Assign score based on membership type
         if skill_match and location_match:
-            score = 2 if membership == "paid" else 1  # Give higher score to paid trainers
+            score = 2 if membership == "paid" else 1
             matched.append((score, row))
 
-    # Sort trainers by score (higher score first)
+    # Sort by score (highest first)
     matched.sort(key=lambda x: x[0], reverse=True)
 
-    # Return the top 10 matched trainers
+    # Return the top 10 matches
     return {
         "matches": [
             {
@@ -61,6 +59,6 @@ async def match_trainers(request: Request):
                 "bio": r.get("Short Bio", ""),
                 "pic": r.get("Profile Picture Upload", ""),
             }
-            for _, r in matched[:10]  # Return the top 10 matches
+            for _, r in matched[:10]
         ]
     }
